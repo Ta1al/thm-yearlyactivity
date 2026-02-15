@@ -20,6 +20,10 @@ def parse_args() -> argparse.Namespace:
 		help="Optional username or profile URL (e.g., https://tryhackme.com/p/username)",
 	)
 	parser.add_argument("-u", "--username", help="TryHackMe username")
+	parser.add_argument(
+		"--users",
+		help="Comma-separated usernames or profile URLs for comparison",
+	)
 	parser.add_argument("-y", "--year", type=int, help="Year (e.g., 2025)")
 	parser.add_argument(
 		"--years",
@@ -99,6 +103,29 @@ def resolve_username(username: str | None, raw_input: str | None) -> str:
 		return parts[-1]
 
 	return text
+
+
+def parse_user_list(raw: str) -> List[str]:
+	users: List[str] = []
+	for item in raw.split(","):
+		item = item.strip()
+		if not item:
+			continue
+		users.append(resolve_username(item, None))
+	return users
+
+
+def resolve_users(args: argparse.Namespace) -> List[str]:
+	if args.users:
+		return parse_user_list(str(args.users))
+
+	if args.username or args.input:
+		return [resolve_username(args.username, args.input)]
+
+	raw = prompt_if_missing(None, "username or profile URL (comma-separated allowed)")
+	if "," in raw:
+		return parse_user_list(raw)
+	return [resolve_username(raw, None)]
 
 
 def fetch_user_id(username: str) -> str:
@@ -215,9 +242,31 @@ def plot_activity(
 	plt.show()
 
 
+def plot_multi_activity(
+	series: Dict[str, Tuple[List[dt.date], List[int]]], year_label: str
+) -> None:
+	import matplotlib.dates as mdates
+	import matplotlib.pyplot as plt
+
+	fig, axis = plt.subplots(figsize=(12, 4))
+	for username, (dates, counts) in series.items():
+		axis.plot(dates, counts, linewidth=1.2, label=username)
+
+	axis.set_title(f"TryHackMe Activity Comparison ({year_label})")
+	axis.set_ylabel("Daily count")
+	axis.set_xlabel("Date")
+
+	axis.xaxis.set_major_locator(mdates.AutoDateLocator())
+	axis.xaxis.set_major_formatter(mdates.ConciseDateFormatter(axis.xaxis.get_major_locator()))
+	axis.grid(True, linestyle="--", alpha=0.4)
+	axis.legend(loc="upper right")
+
+	fig.tight_layout()
+	plt.show()
+
+
 def main() -> int:
 	args = parse_args()
-	username = resolve_username(args.username, args.input)
 	try:
 		years = parse_years(args)
 	except ValueError:
@@ -225,30 +274,48 @@ def main() -> int:
 		return 1
 
 	try:
-		print(f"Fetching user ID for '{username}'...")
-		user_id = fetch_user_id(username)
-		print(f"User ID found: {user_id}")
-		activities_by_year: Dict[int, List[Dict[str, object]]] = {}
-		for year in years:
-			print(f"Fetching yearly activity for {year}...")
-			activity = fetch_yearly_activity(user_id, year)
-			if activity is None:
-				print(f"No data found for {year}; skipping.")
+		users = resolve_users(args)
+		all_series: Dict[str, Tuple[List[dt.date], List[int]]] = {}
+		available_years: List[int] = []
+
+		for username in users:
+			print(f"Fetching user ID for '{username}'...")
+			user_id = fetch_user_id(username)
+			print(f"User ID found: {user_id}")
+			activities_by_year: Dict[int, List[Dict[str, object]]] = {}
+			for year in years:
+				print(f"Fetching yearly activity for {year}...")
+				activity = fetch_yearly_activity(user_id, year)
+				if activity is None:
+					print(f"No data found for {year}; skipping.")
+					continue
+				print(f"Fetched {len(activity)} activity records.")
+				activities_by_year[year] = activity
+
+			if not activities_by_year:
+				print(f"No yearly activity data found for {username}.")
 				continue
-			print(f"Fetched {len(activity)} activity records.")
-			activities_by_year[year] = activity
-		if not activities_by_year:
-			print("No yearly activity data found for any requested year.")
+
+			combined_years = sorted(activities_by_year.keys())
+			dates, counts = build_combined_series(combined_years, activities_by_year)
+			all_series[username] = (dates, counts)
+			available_years.extend(combined_years)
+
+		if not all_series:
+			print("No yearly activity data found for any requested user.")
 			return 0
 
-		combined_years = sorted(activities_by_year.keys())
-		dates, counts = build_combined_series(combined_years, activities_by_year)
+		available_years = sorted(set(available_years))
 		label = (
-			str(combined_years[0])
-			if len(combined_years) == 1
-			else f"{combined_years[0]}-{combined_years[-1]}"
+			str(available_years[0])
+			if len(available_years) == 1
+			else f"{available_years[0]}-{available_years[-1]}"
 		)
-		plot_activity(username, label, dates, counts)
+		if len(all_series) == 1:
+			username, (dates, counts) = next(iter(all_series.items()))
+			plot_activity(username, label, dates, counts)
+		else:
+			plot_multi_activity(all_series, label)
 	except requests.RequestException as exc:
 		print(f"Request failed: {exc}")
 		return 1
