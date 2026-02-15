@@ -68,7 +68,7 @@ def parse_years(args: argparse.Namespace) -> List[int]:
 def resolve_username(username: str | None, raw_input: str | None) -> str:
 	candidate = username or raw_input
 	if candidate is None or not str(candidate).strip():
-		return prompt_if_missing(None, "username")
+		candidate = prompt_if_missing(None, "username or profile URL")
 
 	text = str(candidate).strip()
 	if text.startswith("http://") or text.startswith("https://"):
