@@ -58,8 +58,27 @@ def parse_years(args: argparse.Namespace) -> List[int]:
 			start, end = end, start
 		years.extend(range(start, end + 1))
 
+	if args.year is not None:
+		years.append(resolve_year(args.year))
+
 	if not years:
-		years = [resolve_year(args.year)]
+		raw = prompt_if_missing(None, "year (e.g., 2025 | 2023,2024 | 2021-2024)")
+		raw = raw.strip()
+		if "-" in raw and "," not in raw:
+			start_str, end_str = [part.strip() for part in raw.split("-", 1)]
+			start = int(start_str)
+			end = int(end_str)
+			if start > end:
+				start, end = end, start
+			years.extend(range(start, end + 1))
+		elif "," in raw:
+			for item in raw.split(","):
+				item = item.strip()
+				if not item:
+					continue
+				years.append(int(item))
+		else:
+			years.append(int(raw))
 
 	unique_years = sorted(set(years))
 	return unique_years
