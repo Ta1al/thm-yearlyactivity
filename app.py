@@ -8,6 +8,7 @@ import requests
 
 PROFILE_URL = "https://tryhackme.com/api/v2/public-profile"
 YEARLY_URL = "https://tryhackme.com/api/v2/public-profile/yearly-activity"
+RECAP_URL = "https://tryhackme.com/api/v2/recapme/{year}/{username}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -128,14 +129,25 @@ def resolve_users(args: argparse.Namespace) -> List[str]:
 	return [resolve_username(raw, None)]
 
 
-def fetch_user_id(username: str) -> str:
-	response = requests.get(PROFILE_URL, params={"username": username}, timeout=30)
-	response.raise_for_status()
-	payload = response.json()
-	user_id = payload.get("data", {}).get("_id")
-	if not user_id:
-		raise ValueError("User ID not found in response.")
-	return user_id
+def fetch_user_id(username: str, years: List[int]) -> str:
+	years_to_try = sorted(set(years), reverse=True)
+	current_year = dt.date.today().year
+	if current_year not in years_to_try:
+		years_to_try.append(current_year)
+
+	for year in years_to_try:
+		response = requests.get(
+			RECAP_URL.format(year=year, username=username), timeout=30
+		)
+		if response.status_code == 404:
+			continue
+		response.raise_for_status()
+		payload = response.json()
+		user_id = payload.get("data", {}).get("userId")
+		if user_id:
+			return str(user_id)
+
+	raise ValueError("User ID not found in recap data.")
 
 
 def fetch_yearly_activity(user_id: str, year: int) -> List[Dict[str, object]] | None:
@@ -280,7 +292,7 @@ def main() -> int:
 
 		for username in users:
 			print(f"Fetching user ID for '{username}'...")
-			user_id = fetch_user_id(username)
+			user_id = fetch_user_id(username, years)
 			print(f"User ID found: {user_id}")
 			activities_by_year: Dict[int, List[Dict[str, object]]] = {}
 			for year in years:
