@@ -9,7 +9,7 @@ import requests
 
 PROFILE_URL = "https://tryhackme.com/api/v2/public-profile"
 YEARLY_URL = "https://tryhackme.com/api/v2/public-profile/yearly-activity"
-RECAP_URL = "https://tryhackme.com/api/v2/recapme/{year}/{username}"
+RECAP_URL = "https://tryhackme.com/api/v2/recapme/2025/{username}"
 
 
 def parse_args() -> argparse.Namespace:
