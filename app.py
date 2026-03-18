@@ -1,5 +1,6 @@
 import argparse
 import datetime as dt
+import re
 import sys
 from typing import Dict, List, Tuple
 
@@ -8,6 +9,7 @@ import requests
 
 PROFILE_URL = "https://tryhackme.com/api/v2/public-profile"
 YEARLY_URL = "https://tryhackme.com/api/v2/public-profile/yearly-activity"
+PROFILE_PAGE_URL = "https://tryhackme.com/p"
 
 
 def parse_args() -> argparse.Namespace:
@@ -132,10 +134,42 @@ def fetch_user_id(username: str) -> str:
 	response = requests.get(PROFILE_URL, params={"username": username}, timeout=30)
 	response.raise_for_status()
 	payload = response.json()
-	user_id = payload.get("data", {}).get("_id")
-	if not user_id:
-		raise ValueError("User ID not found in response.")
-	return user_id
+	data = payload.get("data", {})
+
+	if isinstance(data, dict):
+		user_id = data.get("_id")
+		if isinstance(user_id, str) and user_id:
+			return user_id
+
+	profile_response = requests.get(
+		f"{PROFILE_PAGE_URL}/{username}",
+		headers={"User-Agent": "Mozilla/5.0"},
+		timeout=30,
+	)
+	profile_response.raise_for_status()
+	html = profile_response.text
+
+	object_with_username_pattern = re.compile(
+		rf'"username"\s*:\s*"{re.escape(username)}"[^{{}}]{{0,4000}}?"id"\s*:\s*"([0-9a-f]{{24}})"',
+		re.IGNORECASE,
+	)
+	match = object_with_username_pattern.search(html)
+	if match:
+		return match.group(1)
+
+	reverse_pattern = re.compile(
+		rf'"id"\s*:\s*"([0-9a-f]{{24}})"[^{{}}]{{0,4000}}?"username"\s*:\s*"{re.escape(username)}"',
+		re.IGNORECASE,
+	)
+	match = reverse_pattern.search(html)
+	if match:
+		return match.group(1)
+
+	all_ids = re.findall(r'"id"\s*:\s*"([0-9a-f]{24})"', html, flags=re.IGNORECASE)
+	if all_ids:
+		return all_ids[0]
+
+	raise ValueError("User ID not found in API or profile page response.")
 
 
 def fetch_yearly_activity(user_id: str, year: int) -> List[Dict[str, object]] | None:
